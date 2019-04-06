@@ -22,8 +22,8 @@ volatile uint8_t sC = 0; // Valor de segundos mostrado no cronometro
 volatile uint8_t mC = 0; // Valor de minutos mostrado no cronometro
 volatile uint8_t hC = 0; // Valor de horas mostrado no cronometro
 
-volatile uint8_t mA = 0; // Valor de minutos mostrado no alarme
-volatile uint8_t hA = 0; // Valor de horas mostrado no alarme
+volatile uint8_t mA = 59; // Valor de minutos mostrado no alarme
+volatile uint8_t hA = 23; // Valor de horas mostrado no alarme
 volatile uint8_t mAC = 0; // Valor de minutos mostrado no alarme em configuração
 volatile uint8_t hAC = 0; // Valor de horas mostrado no alarme em configuração
 
@@ -35,20 +35,13 @@ enum modoConfig {PADRAO, HORA, MINUTO}; // Indica qual variável estou configura
 modos modoAtual = RELOGIO;
 modoConfig configRelogio = PADRAO;
 modoConfig configAlarme = PADRAO;
-bool cronoAtivo = false;
+bool cronoAtivo = false, alarmeAtivo = false;
 bool botaoModoApertado = false;
 bool bSetApertado = false, bResetApertado = false;
 
-bool bSetRelogioApertado = false, bResetRelogioApertado = false;
-bool bSetCronoApertado = false,  bResetCronoApertado = false;
-bool bSetAlarmeApertado = false, bResetAlarmeApertado = false;
-uint8_t modoConfigA = 0, modoConfigR = 0; // 0 - segundos, 1 - minutos, 2 - horas
-
-
-
 ISR(TIMER0_OVF_vect) {
   x++;
-  if (x < 20) { //61 overflows = 1 segundo decorrido
+  if (x < 10) { //61 overflows = 1 segundo decorrido
 
   } else { // ELSE executado a cada 1 segundo
     sR++;
@@ -64,11 +57,11 @@ ISR(TIMER0_OVF_vect) {
     }
 
     if (sR >= 60) {
-      mR++; sR = 0;
+      mR++; mRC++; sR = 0;
     } if (mR >= 60) {
-      hR++; mR = 0;
+      hR++; hRC++; mR = 0;
     } if (hR >= 24) {
-      hR = 0;
+      hR = 0; hRC = 0;
     }                 // Incremento das variáveis
 
     if (modoAtual == RELOGIO) { // Relógio
@@ -103,6 +96,11 @@ ISR(TIMER0_OVF_vect) {
       Serial.println(sC);
 
     } else if (modoAtual == ALARME) { // Alarme
+      if (alarmeAtivo) {
+        Serial.print("ON ");
+      } else {
+        Serial.print("OFF ");
+      }
       if (configAlarme == PADRAO) { // modo padrão, mostra tudo
         Serial.print(hA);
         Serial.print(":");
@@ -121,6 +119,20 @@ ISR(TIMER0_OVF_vect) {
         } else Serial.println(mA);
       }
     }
+
+    if (mR == mA && hR == hA && alarmeAtivo) {
+      PORTD |= 0b00001000; //digitalWrite(3, HIGH);
+    } else {
+      PORTD &= 0b11110111; //digitalWrite(3, LOW);
+    }
+
+    /*
+      if(AC0A){
+      PORTB |= 0b00001000;
+      } else {
+      PORTB &= 0b11110111;
+      }
+    */
   }
 }
 
@@ -131,16 +143,18 @@ int main(void) {
   // valores iniciais dos sinais PWM
   // configuracao do PWM
   //FAST PWM 10 bits (Modo 7) sem inversão
-  /*TCCR1A = _BV(COM1A1) | _BV(WGM10) | _BV(WGM11);
-    TCCR1B = _BV(CS11) | _BV(WGM12);
+  TCCR1A = _BV(COM1A1) | _BV(WGM10) | _BV(WGM11);
+  TCCR1B = _BV(CS11) | _BV(WGM12);
 
-    // PB1/OC1A como saída
-    DDRB = 0b00100010; ;
-    //Valor do PWM OCR1A = 0 - 1023
-  */
+  // PB1/OC1A como saída
+  DDRB = 0b00100010;
+  //Valor do PWM OCR1A = 0 - 1023
+
   ADMUX   |= 0b01000000;
   ADCSRA  |= 0b10000111;
 
+  DDRD  |= 0b00001000; // Pino PD3 como saída
+  PORTD &= 0b00001000;
 
   DDRB  &= 0b11111000;  //Pino PB0:2 como entrada
   PORTB |= 0b00000111; // Entradas pull up
@@ -154,8 +168,6 @@ int main(void) {
 
   while (1) {
     if (!(PINB & 0x01)) { // PORTB0 pressionado, Modo
-
-      // Relogio=0, Cronometro=1, ConfigAlarme=2, ConfigRelogio=3
       if (!botaoModoApertado) {
         botaoModoApertado = true;
         mudarModo(); // relogio -> cronometro -> alarme
@@ -167,27 +179,32 @@ int main(void) {
     }
 
     if (modoAtual == RELOGIO) {
-      if (!(PINB & 0b00000100)) { // PORTB2, Set muda o modo de configuração
+      if (!(PINB & 0b00000010)) { // PORTB1, Set muda estado salvando
         if (!bSetApertado) {
           bSetApertado = true;
-          mudarModoConfig();
-          Serial.print("modoConfig relogio: "); imprimeModo();
+          imprimeModo();
+
+          if (configRelogio == MINUTO) {
+            mR = mRC;
+            mudarModoConfig();
+          } else if (configRelogio == HORA) {
+            hR = hRC;
+            mudarModoConfig();
+          }
         }
       }
-      if (PINB & 0b00000100) bSetApertado = false;
+      if (PINB & 0b00000010) bSetApertado = false;
 
-      if (!(PINB & 0b00000010)) { // PORTB1, Reset salva novos valores
+      if (!(PINB & 0b00000100)) { // PORTB2, Reset muda estado sem salvar
         if (!bResetApertado) {
-          bSetApertado = true;
-          mudarModoConfig();
-          Serial.print("modoConfig relogio: "); imprimeModo();
+          bResetApertado = true;
+          hRC = hR; mRC = mR;
+          mudarModoConfig(); imprimeModo();
         }
       }
-      if (PINB & 0b00000100) bSetApertado = false;
+      if (PINB & 0b00000100) bResetApertado = false;
 
-      if (configRelogio == PADRAO) { // Só mostrando
-        continue;
-      } else {  // Configurando
+      if (configRelogio != PADRAO) { // Só mostrando
         ADCSRA |= 0b01000000;
         while (!(ADCSRA & 0b00010000)); //Ainda não estamos usando ADC
         if (configRelogio == MINUTO) { //Ajustando minutos
@@ -220,18 +237,24 @@ int main(void) {
       if (PINB & 0b00000100) bResetApertado = false; // Se PINB2 estiver solto
 
     }  else if (modoAtual == ALARME) {
-      if (!(PINB & 0b00000100)) { // PORTB2, muda o modo do alarme
-        if (!bSetApertado) {
-          bSetApertado = true;
+      if (!(PINB & 0b00000100)) { // PORTB2, Reset muda o modo do alarme
+        if (!bResetApertado) {
+          bResetApertado = true;
           mudarModoConfig();
-          Serial.print("modoConfig alarme: "); imprimeModo();
+          imprimeModo();
         }
       }
-      if (PINB & 0b00000100) bSetApertado = false;
+      if (PINB & 0b00000100) bResetApertado = false;
 
-      if (configAlarme == PADRAO) { // Só mostrando
-        continue;
-      } else {  // Configurando
+      if (!(PINB & 0b00000010)) { // PORTB1, Set muda o modo do alarme
+        if (!bSetApertado) {
+          bSetApertado = true;
+          alarmeAtivo = !alarmeAtivo;
+        }
+      }
+      if (PINB & 0b00000010) bSetApertado = false;
+
+      if (configAlarme != PADRAO) { // Só mostrando
         ADCSRA |= 0b01000000;
         while (!(ADCSRA & 0b00010000)); //Ainda não estamos usando ADC
         if (configAlarme == MINUTO) { //Ajustando minutos
@@ -266,7 +289,6 @@ void mudarModoConfig() {
     else configAlarme = PADRAO;
   }
 }
-
 
 void imprimeModo() {
   //Todas variáveis em uso são GLOBAIS
