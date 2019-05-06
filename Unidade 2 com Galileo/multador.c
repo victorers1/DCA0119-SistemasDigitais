@@ -33,8 +33,8 @@ int main(void) {
   while (flag) {
     LDR0 = ldr0.read();
     LDR1 = ldr1.read();
-    cout<<"LDR0: "<<LDR0<<edl;
-    cout<<"LDR1: "<<LDR1<<edl;
+    printf("LDR0: %d", LDR0);
+    printf("LDR1: %d", LDR1);
   }
 
   return EXIT_SUCCESS;
