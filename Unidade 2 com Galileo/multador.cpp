@@ -2,14 +2,14 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <pthread.h>
-#include <ctime>
+#include <time.h>
 
 /* mraa headers */
 #include "mraa/aio.hpp"
 #include "mraa/common.hpp"
 #include "mraa/gpio.hpp"
 
-#define DELAY_MS 250
+#define DELAY_US  100000// intervalo de delay em microsegundos
 
 /* AIO ports */
 #define AIO_PORT0 0
@@ -19,7 +19,7 @@
 #define GPIO_OUT_LDR0 7
 #define GPIO_OUT_LDR1 8
 
-#define GPIO_IN_ONOFF 6
+#define GPIO_IN_ONOFF 5
 
 using namespace std;
 
@@ -33,8 +33,10 @@ void sig_handler(int signum);
 
 uint16_t LDR0, LDR1;
 bool timer = false; //Indica se temporizador está ativo
-bool S_ligado = false; // Chave geral do sistema
-clock_t tempo;
+bool S_ligado = true; // Chave geral do sistema
+float tempo_passagem = 0; // tempo que o objeto leva para passsar em ambos LDRs
+long long tempo_ms = 0; //tempo decorrido desde a inicialização do sistema
+float vel = 0;
 
 mraa::Aio ldr0(AIO_PORT0);
 mraa::Aio ldr1(AIO_PORT1);
@@ -47,33 +49,25 @@ mraa::Gpio gpio_27(GPIO_OUT_LDR1);
 /* initialize GPIO */
 mraa::Gpio gpio(GPIO_IN_ONOFF);
 
-static pthread_mutex_t time; // indica se contador já passou
-pthread_t thread_contador;
+//pthread_mutex_t time; // indica se contador terminou contagem
+pthread_t tid;
+pthread_t tmain;
 
-int main(void){
-  signal(SIGINT, sig_handler);
-
-  inicial();
-
+void* threadPrincipal(void *id){
   while(1){
     desligado();
     ligado();
   }
 
-  return EXIT_SUCCESS;
+  pthread_exit(NULL);
 }
 
 void* contaTempo(void *id){
-  pthread_mutex_lock(&time);
   while(1){
-    tempo = clock_t();
-    usleep(DELAY_MS);
-    tempo = clock_t() - temp;
-
-
+    usleep(DELAY_US);
+    tempo_ms+=DELAY_US/1000;
+    cout<<"Tempo: "<<tempo_ms/1000<<" s"<<endl;
   }
-
-  pthread_mutex_unlock(&time);
 
   pthread_exit(NULL);
 }
@@ -91,7 +85,7 @@ void inicial(){
   //gpio_27.write(0);
 
   // /* initialize GPIO */
-  // mraa::Gpio gpio(GPIO_IN_ONOFF);
+  mraa::Gpio gpio(GPIO_IN_ONOFF);
 
   /* set GPIO to digital input */
   gpio.dir(mraa::DIR_IN);
@@ -111,7 +105,8 @@ void desligado(){
 }
 
 /**
- * Comandos executados enquanto o sistema está ligado
+ * Comandos executados enquanto o sistema está ligado.
+ * Faz repetidas leituras dos LDRs.
  */
 void ligado() {
   cout<<"Ligado"<<endl;
@@ -122,25 +117,39 @@ void ligado() {
 
       if (LDR0 < 400 && !timer){
         gpio_27.write(1);
+        timer=true;
+        tempo_passagem = tempo_ms;
+        cout<<"tempo_inicial: "<<tempo_passagem<<endl;
       }
       if (LDR1 < 400 && timer){
         gpio_27.write(0);
+        timer=false;
+        cout<<"tempo_final: "<<tempo_ms<<endl;
+        tempo_passagem = (tempo_ms - tempo_passagem)/1000; // tempo_passagem em segundos
+        cout<<"tempo_passagem: "<<tempo_passagem<<endl;
+        vel = 1.0/tempo_passagem*3.6;
+        cout<<"Velocidade = " << vel << " km/h\n";
+
+        if(vel>80){
+          cout<<"Infração detectada! Velocidade "<<vel<<" km/h é acima da permitida (80 km/h)\n";
+        }
+          
+        
       }
     }
 }
 
 void botaoOnOff(void* args){
-  //cout<<"teste"<<endl;
-  while(gpio.read()==0){}
+  // while(gpio.read()==0){}
   S_ligado = !S_ligado;
-  //gpio_24.write(S_ligado);
-  int cont = 0;
-  while(gpio.read()==1){
-    cont++;
-    if(cont==10){
-      break;
-    }
-  }
+  
+  // int cont = 0;
+  // while(gpio.read()==1){
+  //   cont++;
+  //   if(cont==10){
+  //     break;
+  //   }
+  // }
   cout<<"Botao acionado\n";
 }
 
@@ -154,3 +163,18 @@ void sig_handler(int signum){
     exit(0);
   }
 }
+
+int main(void){
+  signal(SIGINT, sig_handler);
+
+  inicial();
+  pthread_create(&tid, NULL, contaTempo, NULL);
+  pthread_create(&tmain, NULL, threadPrincipal, NULL);
+  
+  pthread_join(tmain, NULL);
+  pthread_join(tid, NULL);
+
+  return EXIT_SUCCESS;
+}
+
+
