@@ -19,7 +19,7 @@
 #define GPIO_OUT_LDR0 7
 #define GPIO_OUT_LDR1 8
 
-#define GPIO_IN_ONOFF 5
+#define GPIO_IN_ONOFF 4
 
 using namespace std;
 
@@ -33,7 +33,7 @@ void sig_handler(int signum);
 
 uint16_t LDR0, LDR1;
 bool timer = false; //Indica se temporizador está ativo
-bool S_ligado = true; // Chave geral do sistema
+bool S_ligado = false; // Chave geral do sistema
 float tempo_passagem = 0; // tempo que o objeto leva para passsar em ambos LDRs
 long long tempo_ms = 0; //tempo decorrido desde a inicialização do sistema
 float vel = 0;
@@ -66,7 +66,7 @@ void* contaTempo(void *id){
   while(1){
     usleep(DELAY_US);
     tempo_ms+=DELAY_US/1000;
-    cout<<"Tempo: "<<tempo_ms/1000<<" s"<<endl;
+    //cout<<"Tempo: "<<tempo_ms/1000<<" s"<<endl;
   }
 
   pthread_exit(NULL);
@@ -76,6 +76,7 @@ void* contaTempo(void *id){
  * Todas as inicializações
  */
 void inicial(){
+  cout<<"inicializando"<<endl;
   /* initialize AIO */
   /* set GPIO to digital output */
   gpio_24.dir(mraa::DIR_OUT_LOW);
@@ -100,6 +101,8 @@ void inicial(){
 void desligado(){
   cout<<"Desligado"<<endl;
   while (!S_ligado){
+    
+    //cout<<"desligado"<<endl;
     gpio_24.write(0);
   }
 }
